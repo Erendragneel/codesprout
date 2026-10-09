@@ -37,6 +37,189 @@
   white-space: pre;
   overflow: auto;
 }
+.game-editor-shell {
+  position: relative;
+  min-width: 0;
+}
+.game-editor-shell .game-editor {
+  padding-left: 52px;
+}
+.game-line-gutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40px;
+  overflow: hidden;
+  pointer-events: none;
+  background: #14251e;
+  border-radius: 0 0 0 12px;
+  border-right: 1px solid #34493e;
+}
+.game-line-gutter pre {
+  margin: 0;
+  padding: 16px 8px 16px 0;
+  color: #a7bba8;
+  text-align: right;
+  font:
+    14px/1.65 Consolas,
+    monospace;
+}
+.game-inspector {
+  margin-top: 16px;
+  border: 1px solid #b6c7a7;
+  border-radius: 12px;
+  background: #f1f5eb;
+  color: #344c2f;
+}
+.game-inspector > summary {
+  padding: 14px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+.game-inspector > summary svg {
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.game-inspector-body {
+  padding: 0 14px 14px;
+}
+.game-inspector-body p {
+  font-size: 13px;
+  line-height: 1.7;
+}
+.game-inspector-time {
+  display: block;
+  font-size: 13px;
+  margin: 16px 0 8px;
+}
+.game-watch-scroll {
+  overflow-x: auto;
+}
+.game-watch-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+  table-layout: fixed;
+}
+.game-watch-table caption {
+  text-align: left;
+  margin: 6px 0;
+  font-weight: 700;
+}
+.game-watch-table th,
+.game-watch-table td {
+  border: 1px solid #c7d4bd;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.game-watch-table th:first-child {
+  width: 30%;
+}
+.game-watch-table pre,
+.game-watch-help pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    12px/1.6 Consolas,
+    monospace;
+}
+.game-watch-help {
+  margin-top: 16px;
+  font-size: 13px;
+}
+.game-watch-help summary {
+  padding: 8px 0;
+  cursor: pointer;
+}
+.build-arena {
+  min-width: 0;
+  padding: 24px;
+  margin: 24px 0;
+  border: 1px solid #c0cfb1;
+  border-radius: 20px;
+  background: #fffdf7;
+  color: #344c2f;
+}
+.build-arena-heading {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.build-arena-heading > svg {
+  flex-shrink: 0;
+  color: #416932;
+}
+.build-arena h2 {
+  font-size: 22px;
+  margin: 8px 0;
+}
+.build-arena p,
+.build-plan li {
+  font-size: 14px;
+  line-height: 1.75;
+}
+.build-arena-picks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+.build-arena .build-pick {
+  text-align: left;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #b8c9a8;
+  background: #f7f9f2;
+  color: #344c2f;
+  font: inherit;
+  cursor: pointer;
+}
+.build-arena .build-pick.selected {
+  background: #eaf2df;
+  border: 2px solid #527e42;
+  padding: 15px;
+}
+.build-pick strong,
+.build-pick span,
+.build-pick small {
+  display: block;
+}
+.build-pick span {
+  margin: 8px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.build-pick small {
+  color: #526544;
+  font-size: 12px;
+}
+.build-session h3 {
+  margin-top: 24px;
+}
+.build-plan {
+  padding: 14px;
+  border: 1px solid #bdcbaa;
+  border-radius: 12px;
+  background: #f1f5eb;
+}
+.build-plan summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+.build-plan ol {
+  padding-left: 22px;
+}
+.build-arena button:focus-visible,
+.game-inspector summary:focus-visible {
+  outline: 3px solid #6f923f;
+  outline-offset: 3px;
+}
 .game-screen {
   min-width: 0;
 }
@@ -380,6 +563,18 @@
   }
 }
 @media (max-width: 600px) {
+  .game-line-gutter pre {
+    font-size: 13px;
+  }
+  .build-arena {
+    padding: 16px;
+  }
+  .build-arena-picks {
+    grid-template-columns: 1fr;
+  }
+  .build-arena-heading > svg {
+    display: none;
+  }
   .game-lesson {
     padding: 18px;
   }

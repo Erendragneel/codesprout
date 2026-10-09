@@ -18,7 +18,8 @@ Keep the first visit online until the app finishes loading. After that, all less
 ## Made for curious beginnings
 
 - **30 game lessons:** build a clicker, target game, Pong, maze, and platformer, then debug and build your own game. Learn the game loop, time, input, collisions, scores, win/loss, and restart rules.
-- **8 independent remixes:** change fresh game behavior with several input cases. Guided work, hints, and independent results are recorded separately; code reviews return on a spaced schedule.
+- **10 independent challenges:** eight remixes plus a meteor survival game and brick breaker built from nearly empty functions. Checks cover inputs, timing, collisions, scores, visible results, and restart behavior. Guided work, hints, and independent results are recorded separately; code reviews return on a spaced schedule.
+- **See your code think:** four small guided walkthroughs highlight the line that ran, show memory before and after, and explain when the screen changes. In your own games, pause, inspect watched values, and advance exactly one frame.
 - **Your game workshop:** play live games with touch or keyboard controls, save your own source, and download a self-contained HTML game that works offline. No extra software needed.
 - **6 first steps:** guide a little robot with arrow buttons. No typing.
 - **14 JavaScript lessons:** messages, numbers, variables, decisions, lists, loops, functions, and two tiny projects.
@@ -29,7 +30,7 @@ Keep the first visit online until the app finishes loading. After that, all less
 - **A playground:** change a real program or page and see what happens.
 - **39 simple definitions:** coding and game words explained without assuming prior knowledge.
 
-Progress is stored in this browser, not in an account. **My growth → Save a backup** downloads progress, independent results, and your saved game projects. Use **Save my project** in the workshop before backing up your latest edits. You can restore on another device; old version 1 progress files remain supported. Restoring replaces that device’s saved progress. Clearing browser/app data can remove local progress. The app reports when browser storage is unavailable.
+Progress is stored in this browser, not in an account. **My growth → Save a backup** downloads progress, independent results, your saved projects, and the current workshop draft, including its name and controls. Workshop edits save automatically in this browser; **Save my project** keeps a named copy in your portfolio. You can restore on another device; old version 1 progress files remain supported. Restoring replaces that device’s saved progress. Clearing browser/app data can remove local progress. The app reports when browser storage is unavailable.
 
 This is a personal beginner course in 2D game programming. The same ideas transfer to other game engines, but advanced 3D, multiplayer, large game architecture, and production tools require further learning. Independent results check behavior, not a professional qualification. Hints count as practice, and points are not a grade.
 
@@ -58,7 +59,7 @@ For an installed browser, use `PLAYWRIGHT_CHANNEL=chrome` or `PLAYWRIGHT_CHANNEL
 
 Original curriculum: `src/data/curriculum.ts` and `src/data/gameLessons.ts`. Learning sandboxes: `src/lib/runner.ts` and `src/lib/gameRuntime.ts`. Save and review logic: `src/lib/progress.ts` and `src/lib/mastery.ts`.
 
-JavaScript and games run in workers inside opaque sandboxes with network requests blocked. Live games use an OffscreenCanvas and a two-second frame watchdog; broken loops stop without freezing the app. Game checks create fresh state for each case and simulate input and time rather than compare answer strings. HTML previews remove active content and disable script execution; preview links are intentionally inert. This is a browser learning sandbox with execution/output limits, not a hardened hostile-code or memory-isolation service.
+JavaScript and games run in workers inside opaque sandboxes with network requests blocked. Live games use an OffscreenCanvas and a two-second frame watchdog; broken loops stop without freezing the app. Debug watches are bounded, shown only when the inspector is open, and refreshed at most ten times per second. Common game values appear automatically; use `game.watch("my speed", speed)` inside update or draw for your own labels. Game checks create fresh state for each case and simulate input and time rather than compare answer strings. Guided line walkthroughs trace four fixed built-in examples; arbitrary learner code uses the live frame debugger. HTML previews remove active content and disable script execution; preview links are intentionally inert. This is a browser learning sandbox with execution/output limits, not a hardened hostile-code or memory-isolation service.
 
 No paid services, API keys, accounts, ads, or analytics are required. GitHub serves the files. Fonts are bundled for offline use. Optional speech uses your browser/device voice service.
 

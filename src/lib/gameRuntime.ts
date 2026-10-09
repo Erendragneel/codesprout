@@ -17,6 +17,13 @@ export type GameTestAction = {
 };
 export type GameCheck = { label: string; expression: string; actions?: GameTestAction[] };
 export type GameTestCase = GameCheck;
+export type GameWatchValue =
+  null | boolean | number | string | GameWatchValue[] | { [key: string]: GameWatchValue };
+export type GameDebugSnapshot = {
+  frame: number;
+  time: number;
+  watches: Record<string, GameWatchValue>;
+};
 
 const MAX_CODE = 50_000;
 const MAX_CHECKS = 20;
@@ -43,7 +50,7 @@ function csp(nonce: string): string {
 // This factory lives inside workers. Canvas drawing and headless checks share it,
 // so the checks exercise the same input, collision, and drawing API as Play.
 const GAME_FACTORY = String.raw`
-function makeGame(context, random) {
+function makeGame(context, random, onWatch) {
   const keys = { left: false, right: false, up: false, down: false, space: false };
   const pointer = { x: 0, y: 0, down: false, clicked: false };
   const draws = [];
@@ -69,7 +76,8 @@ function makeGame(context, random) {
     },
     clamp(value, min, max) { return Math.min(max, Math.max(min, value)); },
     random(min, max) { return min + random() * (max - min); },
-    overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+    overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; },
+    watch(label, value) { if (onWatch) onWatch(label, value); }
   };
   return Object.freeze(game);
 }
@@ -93,13 +101,83 @@ const PLAY_WORKER =
 let game;
 let lifecycle;
 let stopped = false;
+let frameNumber = 0;
+let elapsed = 0;
+let lastDebug = -Infinity;
+let watchCalls = 0;
+const watches = Object.create(null);
+const manualWatchNames = new Set();
+const encoder = new TextEncoder();
+const bytes = value => encoder.encode(JSON.stringify(value)).length;
+function shortString(value, limit) {
+  let text = value.slice(0, 240);
+  while (bytes(text) > limit && text.length > 0) text = text.slice(0, Math.floor(text.length / 2));
+  return text;
+}
+function watchSnapshot(value, depth, budget, seen) {
+  if (budget.nodes-- <= 0 || budget.left < 20) return '[truncated]';
+  if (value === null || typeof value === 'boolean') { budget.left -= 5; return value; }
+  if (typeof value === 'number') { budget.left -= 24; return Number.isFinite(value) ? value : String(value); }
+  if (typeof value === 'string') { const result = shortString(value, Math.min(256, budget.left)); budget.left -= bytes(result); return result; }
+  if (typeof value !== 'object') { budget.left -= 14; return '[' + typeof value + ']'; }
+  if (seen.has(value)) { budget.left -= 12; return '[circular]'; }
+  if (depth >= 2) { budget.left -= 14; return '[object]'; }
+  seen.add(value);
+  budget.left -= 2;
+  if (Array.isArray(value)) {
+    const length = Object.getOwnPropertyDescriptor(value, 'length')?.value || 0;
+    const result = [];
+    for (let index = 0; index < Math.min(8, length) && budget.left >= 20; index++) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      budget.left--;
+      result.push(descriptor && 'value' in descriptor ? watchSnapshot(descriptor.value, depth + 1, budget, seen) : '[getter]');
+    }
+    return result;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return '[object]';
+  const result = Object.create(null);
+  let count = 0;
+  for (const key in value) {
+    if (count >= 8 || budget.left < 40) break;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor) continue;
+    const name = shortString(key, 48);
+    budget.left -= bytes(name) + 2;
+    result[name] = 'value' in descriptor ? watchSnapshot(descriptor.value, depth + 1, budget, seen) : '[getter]';
+    count++;
+  }
+  return result;
+}
+function captureWatch(label, value, manual = true) {
+  if (watchCalls++ >= 64) return;
+  const name = shortString(typeof label === 'string' ? label : 'value', 64);
+  if (!manual && manualWatchNames.has(name)) return;
+  if (!Object.prototype.hasOwnProperty.call(watches, name) && Object.keys(watches).length >= 12) return;
+  if (manual) manualWatchNames.add(name);
+  try {
+    const snapshot = watchSnapshot(value, 0, { nodes: 32, left: 480 }, new WeakSet());
+    watches[name] = bytes(snapshot) <= 512 ? snapshot : '[value too large]';
+  } catch { watches[name] = '[unavailable]'; }
+}
+function debugData(enabled, force) {
+  const now = performance.now();
+  if (!enabled || (!force && now - lastDebug < 100)) return {};
+  lastDebug = now;
+  if (lifecycle && lifecycle.inspect) {
+    try { for (const [label, value] of lifecycle.inspect()) captureWatch(label, value, false); } catch {}
+  }
+  return { debug: { frame: frameNumber, time: elapsed, watches: { ...watches } } };
+}
 const send = self.postMessage.bind(self);
 const quietConsole = Object.freeze({ log() {}, info() {}, warn() {}, error() {}, debug() {}, clear() {} });
 function render(dt, update) {
+  watchCalls = 0;
   game.clear();
   if (update && lifecycle.update) lifecycle.update(dt);
   if (lifecycle.draw) lifecycle.draw();
   game.pointer.clicked = false;
+  if (update) { frameNumber++; elapsed += dt; }
 }
 self.onmessage = event => {
   if (stopped) return;
@@ -108,16 +186,20 @@ self.onmessage = event => {
     if (message.type === 'start' && !game) {
       const context = message.canvas.getContext('2d');
       if (!context) throw new Error('This browser could not open the game canvas. Try a current Chrome browser.');
-      game = makeGame(context, Math.random);
-      const evaluate = new Function('game', 'console', '"use strict";\n' + message.code + '\n;return { start: typeof start === "function" ? start : null, update: typeof update === "function" ? update : null, draw: typeof draw === "function" ? draw : null };');
+      game = makeGame(context, Math.random, captureWatch);
+      const commonNames = ['score', 'state', 'timeLeft', 'lives', 'x', 'y', 'tile', 'player', 'ball', 'paddle', 'target', 'enemy', 'stars', 'crystals'];
+      const inspectSource = '() => { const __commonWatches = []; ' + commonNames.map(name => 'if (typeof ' + name + ' !== "undefined") __commonWatches.push([' + JSON.stringify(name) + ', ' + name + ']);').join(' ') + 'return __commonWatches; }';
+      const evaluate = new Function('game', 'console', '"use strict";\n' + message.code + '\n;return { start: typeof start === "function" ? start : null, update: typeof update === "function" ? update : null, draw: typeof draw === "function" ? draw : null, inspect: ' + inspectSource + ' };');
       lifecycle = evaluate(game, quietConsole);
       if (lifecycle.start) lifecycle.start();
       render(0, false);
-      send({ type: 'ready' });
+      send({ type: 'ready', ...debugData(message.debugEnabled, true) });
     } else if (message.type === 'frame' && game) {
       applyInput(game, message);
       render(Math.min(.05, Math.max(0, Number(message.dt) || 0)), true);
-      send({ type: 'frame' });
+      send({ type: 'frame', ...(message.paused ? { paused: true } : {}), ...debugData(message.debugEnabled, message.forceDebug) });
+    } else if (message.type === 'inspect' && game) {
+      send({ type: message.responseType || 'debug', paused: message.paused === true, ...debugData(message.debugEnabled, true) });
     }
   } catch (error) {
     stopped = true;
@@ -172,7 +254,9 @@ self.onmessage = event => {
 /**
  * Render with sandbox="allow-scripts" (never allow-same-origin). Learner code
  * runs in a worker inside this opaque iframe: no app DOM/storage, no network.
- * Messages to the parent carry token and type ready | frame | error | stopped.
+ * Messages carry token and type ready | frame | debug | paused | resumed |
+ * error | stopped. Debug snapshots are opt-in with {type:'debug',enabled:true}.
+ * Pause/resume/step commands wait for an in-flight frame before acknowledging.
  * The parent must also verify event.source against iframe.contentWindow.
  */
 export function createGameDocument(
@@ -182,14 +266,18 @@ export function createGameDocument(
 ): string {
   const nonce = randomToken();
   const actionLabel = controls ? (controls === 'platformer' ? 'Jump' : 'Restart ↻') : 'Action';
-  const actionAria = controls ? (controls === 'platformer' ? 'Jump' : 'Restart game') : 'Jump or action';
+  const actionAria = controls
+    ? controls === 'platformer'
+      ? 'Jump'
+      : 'Restart game'
+    : 'Jump or action';
   const upLabel = controls === 'platformer' ? '↻' : '↑';
   const upAria = controls === 'platformer' ? 'Restart game' : 'Move up';
   const boot = `
     const sessionToken = ${scriptJson(token)};
     const gameCode = ${scriptJson(code.slice(0, MAX_CODE))};
     const workerSource = ${scriptJson(PLAY_WORKER)};
-    const send = (type, error) => parent.postMessage({ type, token: sessionToken, ...(error ? { error } : {}) }, '*');
+    const send = (type, error, details = {}) => parent.postMessage({ ...details, type, token: sessionToken, ...(error ? { error } : {}) }, '*');
     const canvas = document.getElementById('game');
     const status = document.getElementById('status');
     const keys = { left: false, right: false, up: false, down: false, space: false };
@@ -199,25 +287,44 @@ export function createGameDocument(
     let timeout;
     let animation;
     let stopped = false;
+    let pending = false;
+    let paused = false;
+    let debugEnabled = false;
+    const commands = [];
     let previousTime = 0;
     const clearKeys = () => { for (const key of Object.keys(keys)) keys[key] = false; pointer.down = false; pointer.clicked = false; document.querySelectorAll('[data-key]').forEach(button => button.removeAttribute('data-held')); };
     const stop = (message, type = 'error') => {
       if (stopped) return;
-      stopped = true; clearTimeout(timeout); cancelAnimationFrame(animation); clearKeys();
+      stopped = true; clearTimeout(timeout); cancelAnimationFrame(animation); clearKeys(); commands.length = 0;
       if (worker) worker.terminate(); if (workerUrl) URL.revokeObjectURL(workerUrl);
       status.textContent = message || 'Game stopped. Press Play to try again.';
       send(type, type === 'error' ? message : undefined);
     };
     const armWatchdog = () => { clearTimeout(timeout); timeout = setTimeout(() => stop(${scriptJson(TIMEOUT_MESSAGE)}), 2000); };
+    const dispatch = message => {
+      if (stopped || pending) return;
+      pending = true; armWatchdog();
+      worker.postMessage({ ...message, debugEnabled, keys: { ...keys }, pointer: { ...pointer } });
+      if (message.type === 'frame') pointer.clicked = false;
+    };
+    const pump = () => {
+      if (stopped || pending) return;
+      if (commands.length) dispatch(commands.shift());
+      else scheduleFrame();
+    };
+    const enqueue = message => {
+      cancelAnimationFrame(animation); animation = 0;
+      if (commands.length < 10) commands.push(message);
+      pump();
+    };
     const scheduleFrame = () => {
-      if (stopped) return;
+      if (stopped || paused || pending || animation) return;
       animation = requestAnimationFrame(time => {
-        if (stopped) return;
+        animation = 0;
+        if (stopped || paused || pending) return;
         const dt = previousTime ? Math.min(.05, (time - previousTime) / 1000) : 1 / 60;
         previousTime = time;
-        armWatchdog();
-        worker.postMessage({ type: 'frame', dt, keys: { ...keys }, pointer: { ...pointer } });
-        pointer.clicked = false;
+        dispatch({ type: 'frame', dt });
       });
     };
     const keyMap = { ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right', ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down', ' ': 'space' };
@@ -241,6 +348,19 @@ export function createGameDocument(
     addEventListener('message', event => {
       if (event.source !== parent || event.data?.token !== sessionToken) return;
       if (event.data.type === 'stop') stop('', 'stopped');
+      else if (!stopped && event.data.type === 'debug' && typeof event.data.enabled === 'boolean') {
+        debugEnabled = event.data.enabled;
+        enqueue({ type: 'inspect', responseType: 'debug', paused });
+      } else if (!stopped && event.data.type === 'pause') {
+        paused = true; previousTime = 0; clearKeys();
+        enqueue({ type: 'inspect', responseType: 'paused', paused: true });
+      } else if (!stopped && event.data.type === 'resume') {
+        paused = false; previousTime = 0;
+        enqueue({ type: 'inspect', responseType: 'resumed', paused: false });
+      } else if (!stopped && event.data.type === 'step') {
+        paused = true; previousTime = 0;
+        enqueue({ type: 'frame', dt: 1 / 60, paused: true, forceDebug: true });
+      }
       else if (event.data.type === 'input') {
         if (event.data.keys) for (const key of Object.keys(keys)) if (typeof event.data.keys[key] === 'boolean') keys[key] = event.data.keys[key];
         if (event.data.pointer) { for (const key of ['x', 'y']) if (Number.isFinite(event.data.pointer[key])) pointer[key] = event.data.pointer[key]; for (const key of ['down', 'clicked']) if (typeof event.data.pointer[key] === 'boolean') pointer[key] = event.data.pointer[key]; }
@@ -253,14 +373,18 @@ export function createGameDocument(
       workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
       worker = new Worker(workerUrl);
       worker.onmessage = event => {
-        if (stopped) return;
-        clearTimeout(timeout);
+        if (stopped || !pending) return;
+        clearTimeout(timeout); pending = false;
         if (event.data?.type === 'error') stop(String(event.data.error).slice(0, 2000));
-        else if (event.data?.type === 'ready' || event.data?.type === 'frame') { status.textContent = 'Playing. Tap the game or use the controls below.'; send(event.data.type); scheduleFrame(); }
+        else if (['ready', 'frame', 'debug', 'paused', 'resumed'].includes(event.data?.type)) {
+          status.textContent = paused ? 'Paused. Take one frame or Resume to keep playing.' : 'Playing. Tap the game or use the controls below.';
+          send(event.data.type, undefined, { ...(typeof event.data.paused === 'boolean' ? { paused: event.data.paused } : {}), ...(event.data.debug ? { debug: event.data.debug } : {}) });
+          pump();
+        }
       };
       worker.onerror = event => { event.preventDefault(); stop('The game runner could not start. Try a current Chrome browser.'); };
       const surface = canvas.transferControlToOffscreen();
-      armWatchdog(); worker.postMessage({ type: 'start', code: gameCode, canvas: surface }, [surface]);
+      pending = true; armWatchdog(); worker.postMessage({ type: 'start', code: gameCode, canvas: surface, debugEnabled }, [surface]);
     } catch (error) { stop(error.message || String(error)); }
   `;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${csp(nonce)}"><style>html,body{margin:0;background:#102a32;color:#fff;font-family:system-ui,sans-serif}*{box-sizing:border-box}body{padding:10px}canvas{display:block;width:100%;aspect-ratio:3/2;border-radius:12px;touch-action:none;outline-offset:3px}canvas:focus-visible,button:focus-visible{outline:3px solid #fff}#status{font-size:12px;line-height:1.4;min-height:34px;margin:8px 0}#controls{display:flex;gap:7px;justify-content:center}button{background:#254650;color:#fff;border:1px solid #567780;border-radius:10px;min-height:48px;min-width:44px;font-size:20px;touch-action:none}button[data-held]{background:#496b3a}button[data-key=space]{flex:1;font-size:15px;max-width:105px}@media(max-width:300px){body{padding:6px}#controls{gap:4px}button{min-width:38px}}</style></head><body><canvas id="game" width="360" height="240" tabindex="0" aria-label="Your playable game. Tap here to focus keyboard controls.">Your game needs canvas support.</canvas><p id="status" role="status">Starting your game…</p><div id="controls" role="group" aria-label="Touch game controls"><button type="button" data-key="left" aria-label="Move left">←</button><button type="button" data-key="up" aria-label="${upAria}">${upLabel}</button><button type="button" data-key="down" aria-label="Move down">↓</button><button type="button" data-key="right" aria-label="Move right">→</button><button type="button" data-key="space" aria-label="${actionAria}">${actionLabel}</button></div><script nonce="${nonce}">${boot}</script></body></html>`;

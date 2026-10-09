@@ -88,7 +88,7 @@ try {
       );
       await dialog.getByRole('button', { name: 'Try this small change' }).click();
       await dialog.getByRole('button', { name: 'Check my game', exact: true }).click();
-      await dialog.getByText('The game meets every goal.', { exact: true }).waitFor();
+      await dialog.getByText('Your code passed these behavior checks.', { exact: true }).waitFor();
       assert.equal(
         await page.evaluate(
           (id) => JSON.parse(localStorage.getItem('codesprout.progress.v1')).drafts[id + '-help'],
@@ -101,7 +101,7 @@ try {
     await dialog.getByRole('textbox', { name: 'Game code' }).fill(lesson.solution);
     await dialog.getByRole('button', { name: 'Check my game', exact: true }).click();
     await dialog
-      .getByText('The game meets every goal.', { exact: true })
+      .getByText('Your code passed these behavior checks.', { exact: true })
       .waitFor()
       .catch(async (error) => {
         throw new Error(
@@ -132,7 +132,9 @@ try {
         await build(lesson);
         await dialog.getByRole('button', { name: 'Try my own remix' }).click();
         await dialog.getByRole('button', { name: 'Check my game', exact: true }).click();
-        await dialog.getByText('The game meets every goal.', { exact: true }).waitFor();
+        await dialog
+          .getByText('Your code passed these behavior checks.', { exact: true })
+          .waitFor();
         assert.equal(await dialog.getByRole('button', { name: 'Save this practice' }).count(), 1);
         assert.equal(
           await page.evaluate(
@@ -150,7 +152,7 @@ try {
       }
       await dialog.getByRole('textbox', { name: 'Game code' }).fill(lesson.game.challenge.solution);
       await dialog.getByRole('button', { name: 'Check my game', exact: true }).click();
-      await dialog.getByText('The game meets every goal.', { exact: true }).waitFor();
+      await dialog.getByText('Your code passed these behavior checks.', { exact: true }).waitFor();
       await dialog.getByRole('button', { name: 'Save my independent result' }).click();
     }
     if (index === 0) await audit('Game completion accessibility');
@@ -240,13 +242,11 @@ try {
     lastLesson: 'one-small-step',
     review: {},
   };
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'old-v1-backup.json',
-      mimeType: 'application/json',
-      buffer: Buffer.from(JSON.stringify(oldProgress)),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'old-v1-backup.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(oldProgress)),
+  });
   await page.waitForFunction(
     () => JSON.parse(localStorage.getItem('codesprout.progress.v1')).xp === 30
   );
@@ -258,13 +258,11 @@ try {
     ),
     8
   );
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'new-v2-backup.json',
-      mimeType: 'application/json',
-      buffer: Buffer.from(JSON.stringify(bundle)),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'new-v2-backup.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(bundle)),
+  });
   await page.waitForFunction(
     () => JSON.parse(localStorage.getItem('codesprout.progress.v1')).xp === 900
   );
@@ -287,7 +285,7 @@ try {
     .getByRole('textbox', { name: 'Game code' })
     .fill(reviewLesson.game.challenge.solution);
   await review.getByRole('button', { name: 'Check my game', exact: true }).click();
-  await review.getByText('The game meets every goal.', { exact: true }).waitFor();
+  await review.getByText('Your code passed these behavior checks.', { exact: true }).waitFor();
   await review.getByRole('button', { name: 'Save my code review' }).click();
   await review.getByRole('button', { name: 'Back to my learning path' }).click();
   mastery = await page.evaluate(() =>

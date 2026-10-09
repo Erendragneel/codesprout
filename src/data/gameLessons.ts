@@ -2257,7 +2257,7 @@ export const gameLessons: Lesson[] = [
       'Test a miss, a safe route, and Restart. A game that works once still needs to work the second time.',
     ],
     takeaway:
-      'You can independently combine input, time, collisions, score, results, and reset into a playable game.',
+      'Input, time, collisions, score, results, and reset fit together into a playable game.',
     keywords: ['independent build', 'game loop', 'collision', 'state', 'debugging'],
     snippets: [
       {

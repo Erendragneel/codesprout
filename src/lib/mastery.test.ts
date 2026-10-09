@@ -17,6 +17,30 @@ import {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('game learning evidence', () => {
+  it('preserves saved game controls in backups while accepting older projects', () => {
+    const saved = saveProject(
+      defaultMastery(),
+      'project-abc',
+      'My platformer',
+      'function draw() {}',
+      '2026-10-09',
+      'platformer'
+    );
+    expect(importMastery(exportMastery(saved)).projects['project-abc'].controls).toBe('platformer');
+    const old = saveProject(
+      defaultMastery(),
+      'project-old',
+      'Old game',
+      'let score = 0;',
+      '2026-10-09'
+    );
+    expect(importMastery(exportMastery(old)).projects['project-old'].controls).toBeUndefined();
+    const invalid = JSON.parse(exportMastery(saved));
+    invalid.projects['project-abc'].controls = 'network';
+    expect(() => importMastery(JSON.stringify(invalid))).toThrow();
+    invalid.projects['project-abc'].controls = ['platformer'];
+    expect(() => importMastery(JSON.stringify(invalid))).toThrow();
+  });
   it('keeps assisted lesson completions separate from independently passed challenges', () => {
     const initial = defaultMastery();
     const guided = recordGuided(initial, 'clicker-1', true, '2026-10-09');

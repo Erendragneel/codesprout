@@ -4,7 +4,15 @@ export type MasteryState = {
   version: 1;
   guided: Record<string, { assisted: boolean; completedAt: string }>;
   independent: Record<string, { completedAt: string; attempts: number }>;
-  projects: Record<string, { title: string; code: string; updatedAt: string }>;
+  projects: Record<
+    string,
+    {
+      title: string;
+      code: string;
+      updatedAt: string;
+      controls?: 'pointer' | 'arrows' | 'platformer';
+    }
+  >;
   review: Record<string, { due: string; interval: number }>;
 };
 
@@ -118,6 +126,9 @@ function decodeMastery(
       value.title.length > 120 ||
       typeof value.code !== 'string' ||
       value.code.length > MAX_CODE_LENGTH ||
+      (value.controls !== undefined &&
+        (typeof value.controls !== 'string' ||
+          !['pointer', 'arrows', 'platformer'].includes(value.controls))) ||
       !isDate(value.updatedAt)
     ) {
       throw new Error('This game backup has an invalid or oversized project.');
@@ -126,7 +137,14 @@ function decodeMastery(
     if (totalCodeLength > MAX_TOTAL_CODE_LENGTH)
       throw new Error('This game backup contains too much project code.');
     if (!projects || projects.has(id))
-      result.projects[id] = { title: value.title, code: value.code, updatedAt: value.updatedAt };
+      result.projects[id] = {
+        title: value.title,
+        code: value.code,
+        updatedAt: value.updatedAt,
+        ...(value.controls
+          ? { controls: value.controls as 'pointer' | 'arrows' | 'platformer' }
+          : {}),
+      };
   }
   for (const [id, value] of Object.entries(input.review)) {
     if (!safeId(id) || !isRecord(value) || !isDate(value.due) || !integer(value.interval, 365)) {
@@ -203,7 +221,8 @@ export function saveProject(
   id: string,
   title: string,
   code: string,
-  today?: string
+  today?: string,
+  controls?: 'pointer' | 'arrows' | 'platformer'
 ): MasteryState {
   if (
     !safeId(id) ||
@@ -211,7 +230,8 @@ export function saveProject(
     !title.trim() ||
     title.length > 120 ||
     typeof code !== 'string' ||
-    code.length > MAX_CODE_LENGTH
+    code.length > MAX_CODE_LENGTH ||
+    (controls !== undefined && !['pointer', 'arrows', 'platformer'].includes(controls))
   )
     return state;
   if (!state.projects[id] && Object.keys(state.projects).length >= MAX_ITEMS) return state;
@@ -224,7 +244,12 @@ export function saveProject(
     ...state,
     projects: {
       ...state.projects,
-      [id]: { title: title.trim(), code, updatedAt: dayOrToday(today) },
+      [id]: {
+        title: title.trim(),
+        code,
+        updatedAt: dayOrToday(today),
+        ...(controls ? { controls } : {}),
+      },
     },
   };
 }

@@ -19,6 +19,15 @@ import { Garden } from './components/Garden';
 import LessonView, { speak } from './components/LessonView';
 import GameLessonView from './components/GameLessonView';
 import GameLab from './components/GameLab';
+import CodeWalkthrough from './components/CodeWalkthrough';
+import BuildArena from './components/BuildArena';
+import { buildChallenges } from './data/buildChallenges';
+import {
+  importWorkshopDraft,
+  loadWorkshopDraft,
+  saveWorkshopDraft,
+  type WorkshopDraft,
+} from './lib/workshopDraft';
 import {
   loadMastery,
   saveMastery,
@@ -137,6 +146,9 @@ export default function App() {
   const [mastery, setMastery] = useState(loadMastery);
   const [masteryStorageOk, setMasteryStorageOk] = useState(true);
   const [gameReview, setGameReview] = useState(false);
+  const [workshopEpoch, setWorkshopEpoch] = useState(0);
+  const [restoredWorkshop, setRestoredWorkshop] = useState<WorkshopDraft | null>(null);
+  const [latestWorkshop, setLatestWorkshop] = useState<WorkshopDraft | null>(null);
   const [nav, setNav] = useState<Nav>(initialNav);
   const [track, setTrack] = useState<TrackId>('games');
   const [lesson, setLesson] = useState<Lesson | null>(null);
@@ -160,7 +172,8 @@ export default function App() {
   const gameDue = dueGameReviews(mastery, today);
   const challengeLessons = lessons.filter((l) => l.game?.challenge);
   const gameCompleted = lessons.filter((l) => l.kind === 'game' && completedSet.has(l.id)).length;
-  const independentCount = challengeLessons.filter((l) => mastery.independent[l.id]).length;
+  const challengeIds = [...challengeLessons.map((l) => l.id), ...buildChallenges.map((c) => c.id)];
+  const independentCount = challengeIds.filter((id) => mastery.independent[id]).length;
   const currentTrack = tracks.find((t) => t.id === track)!;
   const trackLessons = lessons.filter((l) => l.track === track);
   const trackCompleted = trackLessons.filter((l) => completedSet.has(l.id)).length;
@@ -267,6 +280,7 @@ export default function App() {
               version: 2,
               progress: JSON.parse(exportProgress(progress)),
               mastery: JSON.parse(exportMastery(mastery)),
+              workshop: latestWorkshop ?? loadWorkshopDraft(),
             },
             null,
             2
@@ -290,21 +304,29 @@ export default function App() {
       const json = await file.text();
       const parsed = JSON.parse(json);
       const isBundle = parsed.format === 'codesprout-bundle' && parsed.version === 2;
-      const ids = lessons.flatMap((l) => [
-        l.id,
-        `${l.id}-remix`,
-        `${l.id}-help`,
-        `${l.id}-remix-help`,
-      ]);
+      const ids = [
+        ...lessons.flatMap((l) => [l.id, `${l.id}-remix`, `${l.id}-help`, `${l.id}-remix-help`]),
+        ...buildChallenges.flatMap((c) => [c.id, `${c.id}-help`]),
+      ];
       const next = importProgress(isBundle ? JSON.stringify(parsed.progress) : json, ids);
       const nextMastery = isBundle
-        ? importMastery(
-            JSON.stringify(parsed.mastery),
-            lessons.map((l) => l.id)
-          )
+        ? importMastery(JSON.stringify(parsed.mastery), [
+            ...lessons.map((l) => l.id),
+            ...buildChallenges.map((c) => c.id),
+          ])
         : null;
+      const nextWorkshop =
+        isBundle && parsed.workshop !== undefined
+          ? importWorkshopDraft(JSON.stringify(parsed.workshop))
+          : null;
       setProgress(next);
       if (nextMastery) setMastery(nextMastery);
+      if (nextWorkshop) {
+        setRestoredWorkshop(nextWorkshop);
+        setLatestWorkshop(nextWorkshop);
+        saveWorkshopDraft(nextWorkshop);
+        setWorkshopEpoch((n) => n + 1);
+      }
       setToast('Your saved progress is restored. Welcome back.');
     } catch (e) {
       setToast(e instanceof Error ? e.message : 'That is not a valid CodeSprout backup.');
@@ -388,7 +410,7 @@ export default function App() {
             <div className="sidebar-foot">
               <span className={`status-dot ${online ? '' : 'offline'}`} />
               {online ? 'Ready to grow' : 'Learning offline'}
-              <span>v2.0</span>
+              <span>v2.1</span>
             </div>
           </div>
         </aside>
@@ -554,8 +576,9 @@ export default function App() {
                   <div>
                     <h2>Let’s make games you can actually play.</h2>
                     <p>
-                      30 small game lessons. Five playable projects. Eight fresh code challenges.
-                      Start at the beginning; use First steps whenever you want a gentler warm-up.
+                      30 small game lessons. Playable projects and {challengeIds.length} fresh code
+                      challenges. Start at the beginning; use First steps whenever you want a
+                      gentler warm-up.
                     </p>
                   </div>
                   <button
@@ -761,6 +784,53 @@ export default function App() {
             )}
             {nav === 'practice' && (
               <>
+                <CodeWalkthrough />
+                <BuildArena
+                  mastery={mastery}
+                  drafts={progress.drafts}
+                  onDraft={(id, value) =>
+                    setProgress((p) => ({ ...p, drafts: { ...p.drafts, [id]: value } }))
+                  }
+                  onFinish={(id, code, attempts, assisted) => {
+                    const challenge = buildChallenges.find((c) => c.id === id)!;
+                    const saved = saveProject(
+                      mastery,
+                      `project-${id}`,
+                      challenge.projectTitle,
+                      code,
+                      undefined,
+                      challenge.controls
+                    );
+                    if (saved === mastery) {
+                      setToast(
+                        'There isn’t enough room to save this build. Download your game to keep it.'
+                      );
+                      return false;
+                    }
+                    const next = assisted
+                      ? saved
+                      : mastery.independent[id]
+                        ? recordGameReview(saved, id, {
+                            passed: true,
+                            assisted: false,
+                            solutionViewed: false,
+                          })
+                        : recordIndependent(saved, id, attempts);
+                    if (!saveMastery(next)) {
+                      setToast(
+                        'This browser could not save your build. Download your game to keep it.'
+                      );
+                      return false;
+                    }
+                    setMastery(next);
+                    setToast(
+                      assisted
+                        ? 'Your game is saved as practice.'
+                        : 'Your independent build and game source are saved.'
+                    );
+                    return true;
+                  }}
+                />
                 <section className="game-evidence">
                   <h2>Use a game skill again</h2>
                   <p className="muted">
@@ -815,9 +885,12 @@ export default function App() {
             {nav === 'playground' && (
               <>
                 <GameLab
+                  key={workshopEpoch}
                   mastery={mastery}
-                  onSave={(id, title, code) => {
-                    const next = saveProject(mastery, id, title, code);
+                  initialDraft={latestWorkshop ?? restoredWorkshop ?? undefined}
+                  onDraftState={setLatestWorkshop}
+                  onSave={(id, title, code, controls) => {
+                    const next = saveProject(mastery, id, title, code, undefined, controls);
                     if (next === mastery) return false;
                     setMastery(next);
                     return saveMastery(next);
@@ -843,7 +916,7 @@ export default function App() {
                     </div>
                     <div>
                       <strong>
-                        {independentCount}/{challengeLessons.length}
+                        {independentCount}/{challengeIds.length}
                       </strong>
                       <span>Independent code challenges</span>
                     </div>
@@ -975,8 +1048,9 @@ export default function App() {
                     <div>
                       <h3>Keep your little garden safe.</h3>
                       <p>
-                        Download your progress, challenge results, and saved game source to move to
-                        another phone or browser. Restoring replaces this device’s saved progress.
+                        Download your progress, challenge results, saved games, and current workshop
+                        draft to move to another phone or browser. Restoring replaces this device’s
+                        saved progress.
                       </p>
                     </div>
                   </div>
@@ -1198,7 +1272,7 @@ export default function App() {
               trackers, or account signups. GitHub hosts the app files.
             </p>
           </div>
-          <p className="small-note">CodeSprout 2.0 · Built for your first playable games</p>
+          <p className="small-note">CodeSprout 2.1 · Build, understand, and debug your games</p>
         </Panel>
       )}
       {panel === 'glossary' && (

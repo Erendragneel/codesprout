@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createGameDocument, runGameChecks, type GameCheck } from '../lib/gameRuntime';
 import type { RunResult } from '../lib/runner';
 import { Icon } from './Icon';
+import GameInspector, { type InspectorSnapshot } from './GameInspector';
 import './game.css';
 
 export function downloadCode(filename: string, content: string, type = 'text/plain') {
@@ -51,10 +52,16 @@ export default function GameStudio({
   const [status, setStatus] = useState('Press Play to see your code turn into a game.');
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
+  const [ready, setReady] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [controlPending, setControlPending] = useState(false);
+  const [snapshot, setSnapshot] = useState<InspectorSnapshot | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const screen = useRef<HTMLDivElement>(null);
   const [frameHeight, setFrameHeight] = useState(400);
   const editor = useRef<HTMLTextAreaElement>(null);
+  const lineNumbers = useRef<HTMLPreElement>(null);
   const active = useRef(true);
   const generation = useRef(0);
   const latestCode = useRef(code);
@@ -75,6 +82,10 @@ export default function GameStudio({
   useEffect(() => {
     setResult(null);
     setSession(null);
+    setReady(false);
+    setPaused(false);
+    setControlPending(false);
+    setSnapshot(null);
     setStatus('Press Play to see your latest code turn into a game.');
     generation.current++;
   }, [code]);
@@ -94,12 +105,44 @@ export default function GameStudio({
         started = true;
         clearTimeout(timer);
         setStatus('Playing. Tap the game, or use the buttons below it.');
+        setReady(true);
+      }
+      const debug = event.data.debug;
+      if (
+        debug &&
+        typeof debug === 'object' &&
+        Number.isSafeInteger(debug.frame) &&
+        debug.frame >= 0 &&
+        Number.isFinite(debug.time) &&
+        debug.time >= 0 &&
+        debug.watches &&
+        typeof debug.watches === 'object' &&
+        !Array.isArray(debug.watches)
+      )
+        setSnapshot({
+          frame: debug.frame,
+          time: debug.time,
+          watches: Object.fromEntries(Object.entries(debug.watches).slice(0, 12)),
+        });
+      if (
+        ['paused', 'resumed'].includes(event.data.type) ||
+        (event.data.type === 'frame' && event.data.paused === true)
+      ) {
+        setPaused(event.data.paused === true);
+        setControlPending(false);
+        setStatus(
+          event.data.paused
+            ? 'Paused. Look at the values or try one frame.'
+            : 'Playing. Tap the game, or use the buttons below it.'
+        );
       }
       if (event.data.type === 'error') {
         clearTimeout(timer);
         setStatus(
           String(event.data.error || event.data.message || 'The game stopped. Check your code.')
         );
+        setReady(false);
+        setControlPending(false);
       }
     };
     window.addEventListener('message', receive);
@@ -108,9 +151,25 @@ export default function GameStudio({
       window.removeEventListener('message', receive);
     };
   }, [session]);
+  useEffect(() => {
+    if (ready && session)
+      frame.current?.contentWindow?.postMessage(
+        { type: 'debug', token: session.token, enabled: debugOpen },
+        '*'
+      );
+  }, [ready, session, debugOpen]);
+  function control(type: 'pause' | 'resume' | 'step') {
+    if (!ready || !session || controlPending) return;
+    setControlPending(true);
+    frame.current?.contentWindow?.postMessage({ type, token: session.token }, '*');
+  }
   function play() {
     const token = crypto.randomUUID();
     setStatus('Starting your game…');
+    setReady(false);
+    setPaused(false);
+    setControlPending(false);
+    setSnapshot(null);
     setSession({ token, document: createGameDocument(code, token, controls) });
   }
   async function check() {
@@ -149,19 +208,33 @@ export default function GameStudio({
             <Icon name="code" size={17} /> Your JavaScript{' '}
             <span>{code.split('\n').length} lines</span>
           </label>
-          <textarea
-            ref={editor}
-            id="game-code-editor"
-            className="game-editor"
-            aria-label="Game code"
-            value={code}
-            maxLength={50000}
-            disabled={checking}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(e) => onChange(e.target.value)}
-          />
+          <div className="game-editor-shell">
+            <div className="game-line-gutter" aria-hidden="true">
+              <pre ref={lineNumbers}>
+                {Array.from(
+                  { length: Math.min(2000, code.split('\n').length) },
+                  (_, i) => i + 1
+                ).join('\n')}
+              </pre>
+            </div>
+            <textarea
+              ref={editor}
+              id="game-code-editor"
+              className="game-editor"
+              aria-label="Game code"
+              value={code}
+              maxLength={50000}
+              disabled={checking}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(e) => onChange(e.target.value)}
+              onScroll={(e) => {
+                if (lineNumbers.current)
+                  lineNumbers.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
+              }}
+            />
+          </div>
           {!!snippets.length && (
             <div>
               <p className="small-note">
@@ -214,6 +287,8 @@ export default function GameStudio({
                 className="button secondary"
                 onClick={() => {
                   setSession(null);
+                  setReady(false);
+                  setControlPending(false);
                   setStatus('Stopped. Press Play whenever you’re ready.');
                 }}
               >
@@ -221,6 +296,14 @@ export default function GameStudio({
               </button>
             )}
           </div>
+          <GameInspector
+            ready={ready}
+            paused={paused}
+            pending={controlPending}
+            snapshot={snapshot}
+            onOpen={setDebugOpen}
+            onControl={control}
+          />
         </div>
       </div>
       {tests && (
@@ -242,7 +325,7 @@ export default function GameStudio({
         <div className={`game-result ${passed ? 'passed' : ''}`} role="status">
           <strong>
             {passed
-              ? 'The game meets every goal.'
+              ? 'Your code passed these behavior checks.'
               : result.error
                 ? 'Let’s fix one small thing.'
                 : 'Some behavior still needs a change.'}

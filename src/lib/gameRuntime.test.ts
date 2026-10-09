@@ -207,6 +207,88 @@ describe('real game behavior checks', () => {
 });
 
 describe('continuous game worker', () => {
+  it('opt-in watches capture snapshots, read course variables, and leave getters alone', () => {
+    const worker = testWorker(createGameDocument('', 'token'));
+    const canvas = { getContext: () => ({ fillRect() {} }) };
+    worker.send({
+      type: 'start',
+      debugEnabled: true,
+      canvas,
+      code: `let score=0;const player={x:0,y:10};
+        function update(dt){score++;player.x+=60*dt;}
+        function draw(){game.watch('copy',player);game.watch('score','manual');game.watch('guarded',{x:5,get trap(){throw Error('Getter ran');}});}`,
+    });
+    worker.send({ type: 'frame', dt: 1 / 60, paused: true, forceDebug: true, debugEnabled: true });
+    const [initial, step] = worker.sent as {
+      debug: { frame: number; time: number; watches: Record<string, unknown> };
+      paused?: boolean;
+    }[];
+    expect(initial.debug.frame).toBe(0);
+    expect(initial.debug.time).toBe(0);
+    expect(initial.debug.watches.copy).toEqual({ x: 0, y: 10 });
+    expect(initial.debug.watches.guarded).toEqual({ x: 5, trap: '[getter]' });
+    expect(step.paused).toBe(true);
+    expect(step.debug.frame).toBe(1);
+    expect(step.debug.time).toBe(1 / 60);
+    expect(step.debug.watches.player).toEqual({ x: 1, y: 10 });
+    expect(step.debug.watches.score).toBe('manual');
+    expect(initial.debug.watches.copy).toEqual({ x: 0, y: 10 });
+  });
+
+  it('caps automatic debug publication at ten per second and leaves default messages alone', () => {
+    let now = 0;
+    vi.stubGlobal('performance', { now: () => now });
+    const worker = testWorker(createGameDocument('', 'token'));
+    const canvas = { getContext: () => ({ fillRect() {} }) };
+    worker.send({
+      type: 'start',
+      debugEnabled: true,
+      canvas,
+      code: 'let x=0;function update(){x++;}',
+    });
+    for (let frame = 0; frame < 9; frame++)
+      worker.send({ type: 'frame', dt: 1 / 60, debugEnabled: true });
+    now = 100;
+    worker.send({ type: 'frame', dt: 1 / 60, debugEnabled: true });
+    now = 150;
+    worker.send({ type: 'frame', dt: 1 / 60, debugEnabled: true });
+    expect(worker.sent.filter((message) => (message as { debug?: unknown }).debug)).toHaveLength(2);
+    const ordinary = testWorker(createGameDocument('', 'token'));
+    ordinary.send({ type: 'start', canvas, code: 'function draw(){game.watch("x",123);}' });
+    ordinary.send({ type: 'frame', dt: 1 / 60 });
+    expect(ordinary.sent).toEqual([{ type: 'ready' }, { type: 'frame' }]);
+  });
+
+  it('bounds the complete watch payload, including Unicode, nested objects, and label count', () => {
+    const worker = testWorker(createGameDocument('', 'token'));
+    const canvas = { getContext: () => ({ fillRect() {} }) };
+    worker.send({
+      type: 'start',
+      debugEnabled: true,
+      canvas,
+      code: `function draw(){const circular={};circular.self=circular;for(let i=0;i<30;i++)game.watch('value'+i+'😀'.repeat(80),{big:Array(100).fill('😀'.repeat(1000)),circular});}`,
+    });
+    const result = worker.sent[0] as { type: string; debug: { watches: Record<string, unknown> } };
+    expect(result.type).toBe('ready');
+    expect(Object.keys(result.debug.watches)).toHaveLength(12);
+    expect(new TextEncoder().encode(JSON.stringify(result.debug)).length).toBeLessThan(8192);
+  });
+
+  it('watch is harmless in behavioral checks and does not add drawing commands', async () => {
+    const browser = mockBrowser();
+    const promise = runGameChecks(
+      'function draw(){game.rect(1,2,3,4);game.watch("anything",{get trap(){throw Error("Getter");}});}',
+      [
+        {
+          label: 'Watch has no gameplay effect',
+          expression: 'game.draws.length === 2 && game.draws[1].type === "rect"',
+        },
+      ]
+    );
+    browser.executeChecks();
+    expect((await promise).checks[0].passed).toBe(true);
+  });
+
   it('renders start and repeated frames with the same input and draw semantics as checks', () => {
     const fillRect = vi.fn();
     const context = {

@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { gameLessons } from '../data/gameLessons';
 import type { MasteryState } from '../lib/mastery';
 import GameStudio from './GameStudio';
 import GameGuide from './GameGuide';
 import { Icon } from './Icon';
+import { loadWorkshopDraft, saveWorkshopDraft, type WorkshopDraft } from '../lib/workshopDraft';
 
 const projects = [...new Set(gameLessons.map((l) => l.game!.project))];
 const templates = projects
@@ -19,34 +20,49 @@ export default function GameLab({
   mastery,
   onSave,
   notify,
+  initialDraft,
+  onDraftState,
 }: {
   mastery: MasteryState;
-  onSave: (id: string, title: string, code: string) => boolean;
+  onSave: (
+    id: string,
+    title: string,
+    code: string,
+    controls?: 'pointer' | 'arrows' | 'platformer'
+  ) => boolean;
   notify: (message: string) => void;
+  initialDraft?: WorkshopDraft;
+  onDraftState?: (draft: WorkshopDraft) => void;
 }) {
-  const [code, setCode] = useState(() => {
-    try {
-      return localStorage.getItem('codesprout-game-lab') ?? templates[0]?.code ?? blank;
-    } catch {
-      return blank;
-    }
+  const [draft, setDraft] = useState(() => {
+    const saved = initialDraft ?? loadWorkshopDraft(templates[0]?.code ?? blank);
+    return {
+      ...saved,
+      controls: saved.controls ?? templates.find((t) => t.code === saved.code)?.controls,
+    };
   });
-  const [title, setTitle] = useState('My little game');
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [controls, setControls] = useState<'pointer' | 'arrows' | 'platformer' | undefined>();
+  const { code, title, projectId, controls } = draft;
+  useEffect(() => {
+    if (!saveWorkshopDraft(draft))
+      notify('This browser could not keep your workshop draft. Download the game to keep it.');
+    onDraftState?.(draft);
+  }, [draft, notify, onDraftState]);
   function edit(value: string) {
-    setCode(value);
-    try {
-      localStorage.setItem('codesprout-game-lab', value);
-    } catch {
-      notify('This browser could not save your draft. Download the game to keep it.');
-    }
+    setDraft((d) => ({ ...d, code: value }));
   }
-  function load(title: string, code: string, id: string | null = null) {
-    setTitle(title);
-    setProjectId(id);
-    setControls(templates.find((t) => t.title === title)?.controls);
-    edit(code);
+  function load(
+    title: string,
+    code: string,
+    id: string | null = null,
+    mode?: 'pointer' | 'arrows' | 'platformer'
+  ) {
+    setDraft({
+      version: 1,
+      title,
+      code,
+      projectId: id,
+      controls: mode ?? templates.find((t) => t.title === title || t.code === code)?.controls,
+    });
   }
   return (
     <section className="game-lab">
@@ -88,7 +104,7 @@ export default function GameLab({
             aria-label="My game’s name"
             value={title}
             maxLength={120}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
           />
         </label>
         <button
@@ -96,8 +112,8 @@ export default function GameLab({
           disabled={!title.trim()}
           onClick={() => {
             const id = projectId ?? `project-${crypto.randomUUID()}`;
-            setProjectId(id);
-            const saved = onSave(id, title, code);
+            setDraft((d) => ({ ...d, projectId: id }));
+            const saved = onSave(id, title, code, controls);
             notify(
               saved
                 ? 'Your game is saved on this device. My growth backups include your saved games.'
@@ -118,7 +134,7 @@ export default function GameLab({
               <button
                 className="button secondary"
                 key={id}
-                onClick={() => load(p.title, p.code, id)}
+                onClick={() => load(p.title, p.code, id, p.controls)}
               >
                 {p.title}
                 <Icon name="arrow" size={16} />
