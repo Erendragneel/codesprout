@@ -39,10 +39,10 @@ pnpm install
 pnpm dev
 pnpm test
 pnpm build
-pnpm stage
+pnpm run stage
 ```
 
-GitHub Pages publishes **main → /docs**. `dist` is the Vite build; `docs` is the checked-in distribution. `pnpm stage` generates a content-versioned offline cache. After a code change, run build and stage before committing. Updates wait for the learner to choose **Update app**, so a session is not unexpectedly interrupted.
+GitHub Pages publishes **main → /docs**. `dist` is the Vite build; `docs` is the checked-in distribution. `pnpm run stage` generates a content-versioned offline cache. After a code change, run build and stage before committing. Updates wait for the learner to choose **Update app**, so a session is not unexpectedly interrupted.
 
 Browser verification:
 

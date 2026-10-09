@@ -21,7 +21,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm build
-      - run: pnpm stage
+      - run: pnpm run stage
       - name: Install browser for learning flow checks
         run: pnpm exec playwright install --with-deps chromium
       - name: Check desktop, phone, code execution and offline learning

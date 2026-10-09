@@ -44,6 +44,12 @@ self.addEventListener('fetch',event=>{
 });
 `;
 fs.writeFileSync(path.join(docs, 'sw.js'), worker);
-fs.writeFileSync(path.join(docs, 'version.json'), JSON.stringify({ version: '1.0.0', revision }));
+fs.writeFileSync(
+  path.join(docs, 'version.json'),
+  JSON.stringify({
+    version: JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version,
+    revision,
+  })
+);
 fs.writeFileSync(path.join(docs, '.nojekyll'), '');
 console.log(`Staged ${files.length} offline assets; release ${revision}`);
