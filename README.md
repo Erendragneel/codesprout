@@ -17,6 +17,9 @@ Keep the first visit online until the app finishes loading. After that, all less
 
 ## Made for curious beginnings
 
+- **30 game lessons:** build a clicker, target game, Pong, maze, and platformer, then debug and build your own game. Learn the game loop, time, input, collisions, scores, win/loss, and restart rules.
+- **8 independent remixes:** change fresh game behavior with several input cases. Guided work, hints, and independent results are recorded separately; code reviews return on a spaced schedule.
+- **Your game workshop:** play live games with touch or keyboard controls, save your own source, and download a self-contained HTML game that works offline. No extra software needed.
 - **6 first steps:** guide a little robot with arrow buttons. No typing.
 - **14 JavaScript lessons:** messages, numbers, variables, decisions, lists, loops, functions, and two tiny projects.
 - **10 HTML & CSS lessons:** headings, paragraphs, lists, links, colors, spacing, and your first profile card.
@@ -24,11 +27,11 @@ Keep the first visit online until the app finishes loading. After that, all less
 - **Real practice:** JavaScript actually runs; web pages actually render. Endless loops stop after about two seconds.
 - **A growing garden:** saved lesson progress, earned points, streaks, milestones, and spaced review.
 - **A playground:** change a real program or page and see what happens.
-- **29 simple definitions:** coding words explained without assuming prior knowledge.
+- **39 simple definitions:** coding and game words explained without assuming prior knowledge.
 
-Progress is stored in this browser, not in an account. **My growth → Save a backup** downloads a progress file you can restore on another device. Restoring replaces that device’s saved progress. Clearing browser/app data can remove local progress. The app reports when browser storage is unavailable.
+Progress is stored in this browser, not in an account. **My growth → Save a backup** downloads progress, independent results, and your saved game projects. Use **Save my project** in the workshop before backing up your latest edits. You can restore on another device; old version 1 progress files remain supported. Restoring replaces that device’s saved progress. Clearing browser/app data can remove local progress. The app reports when browser storage is unavailable.
 
-This is a beginner course; completing it is a foundation for further learning, not a professional qualification. Hints count as practice, and points are not a grade.
+This is a personal beginner course in 2D game programming. The same ideas transfer to other game engines, but advanced 3D, multiplayer, large game architecture, and production tools require further learning. Independent results check behavior, not a professional qualification. Hints count as practice, and points are not a grade.
 
 ## Development
 
@@ -53,9 +56,9 @@ pnpm test:browser
 
 For an installed browser, use `PLAYWRIGHT_CHANNEL=chrome` or `PLAYWRIGHT_CHANNEL=msedge`. The browser test starts its own preview server and checks the learning flow, every worked solution, wrong starters, persistence, narrow layouts, execution deadlines, isolation, accessibility, and offline navigation. CI runs the same checks.
 
-Original curriculum: `src/data/curriculum.ts`. Learning sandboxes: `src/lib/runner.ts`. Save and review logic: `src/lib/progress.ts`.
+Original curriculum: `src/data/curriculum.ts` and `src/data/gameLessons.ts`. Learning sandboxes: `src/lib/runner.ts` and `src/lib/gameRuntime.ts`. Save and review logic: `src/lib/progress.ts` and `src/lib/mastery.ts`.
 
-JavaScript runs in a worker inside an opaque sandbox with network requests blocked. HTML previews remove active content and disable script execution; preview links are intentionally inert. This is a browser learning sandbox with execution/output limits, not a hardened hostile-code or memory-isolation service.
+JavaScript and games run in workers inside opaque sandboxes with network requests blocked. Live games use an OffscreenCanvas and a two-second frame watchdog; broken loops stop without freezing the app. Game checks create fresh state for each case and simulate input and time rather than compare answer strings. HTML previews remove active content and disable script execution; preview links are intentionally inert. This is a browser learning sandbox with execution/output limits, not a hardened hostile-code or memory-isolation service.
 
 No paid services, API keys, accounts, ads, or analytics are required. GitHub serves the files. Fonts are bundled for offline use. Optional speech uses your browser/device voice service.
 

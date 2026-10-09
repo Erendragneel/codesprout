@@ -8,10 +8,16 @@ import ts from 'typescript';
 
 const root = path.resolve(import.meta.dirname, '..');
 const docs = path.join(root, 'docs');
-const source = ts.transpileModule(
-  fs.readFileSync(path.join(root, 'src/data/curriculum.ts'), 'utf8'),
+const gameSource = ts.transpileModule(
+  fs.readFileSync(path.join(root, 'src/data/gameLessons.ts'), 'utf8'),
   { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }
 ).outputText;
+const gameUrl = 'data:text/javascript;base64,' + Buffer.from(gameSource).toString('base64');
+const source = ts
+  .transpileModule(fs.readFileSync(path.join(root, 'src/data/curriculum.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  })
+  .outputText.replace(/(['"])\.\/gameLessons\1/g, JSON.stringify(gameUrl));
 const { lessons } = await import(
   'data:text/javascript;base64,' + Buffer.from(source).toString('base64')
 );
@@ -95,7 +101,8 @@ try {
   );
   pass('Dashboard WCAG A/AA automated accessibility audit');
 
-  await page.getByRole('button', { name: /Try my first tiny lesson/ }).click();
+  await page.getByRole('tab', { name: /First steps/ }).click();
+  await page.locator('.lesson-row').filter({ hasText: 'One small step' }).first().click();
   await page.getByRole('button', { name: 'I’m ready for a tiny guess' }).click();
   await page.getByRole('button', { name: /Jump to any square/ }).click();
   await page.getByRole('button', { name: 'Check my guess' }).click();
@@ -227,6 +234,7 @@ try {
   assert(progress.review['a-few-steps'].due > '2000-01-01');
   pass('Whole-lesson replay counts as review without duplicate completion points');
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
+  await page.getByText('JavaScript and web page experiments', { exact: true }).click();
   const editor = page.getByRole('textbox', { name: 'Playground code editor' });
   await editor.fill('console.log("Hello from real code");');
   await page.getByRole('button', { name: 'Run my code', exact: true }).click();
@@ -257,6 +265,7 @@ try {
   await context.setOffline(true);
   await page.reload();
   await page.getByRole('heading', { name: 'Make something your own.' }).waitFor();
+  await page.getByText('JavaScript and web page experiments', { exact: true }).click();
   await page.getByRole('button', { name: 'JavaScript', exact: true }).click();
   await editor.fill('console.log(2 + 3);');
   await page.getByRole('button', { name: 'Run my code', exact: true }).click();

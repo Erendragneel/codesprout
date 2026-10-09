@@ -34,8 +34,10 @@ import {
   CheckCheck,
   CircleCheck,
   Circle,
+  Gamepad2,
 } from 'lucide-react';
 const icons = {
+  game: Gamepad2,
   arrow: ArrowRight,
   left: ArrowLeft,
   up: ArrowUp,

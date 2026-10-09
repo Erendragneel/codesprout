@@ -1,4 +1,6 @@
-export type TrackId = 'first-steps' | 'javascript' | 'web';
+import type { GameTestCase } from '../lib/gameRuntime';
+import { gameLessons } from './gameLessons';
+export type TrackId = 'first-steps' | 'javascript' | 'web' | 'games';
 
 export interface Lesson {
   id: string;
@@ -12,7 +14,7 @@ export interface Lesson {
   analogy: string;
   example: string;
   prediction: { question: string; choices: string[]; correct: number; explanation: string };
-  kind: 'robot' | 'javascript' | 'html';
+  kind: 'robot' | 'javascript' | 'html' | 'game';
   task: string;
   starter: string;
   solution: string;
@@ -20,6 +22,21 @@ export interface Lesson {
   hints: string[];
   takeaway: string;
   keywords: string[];
+  game?: {
+    project: string;
+    controls: 'pointer' | 'arrows' | 'platformer';
+    tests: GameTestCase[];
+    challenge?: {
+      task: string;
+      starter: string;
+      solution?: string;
+      tests: GameTestCase[];
+      hints: string[];
+    };
+    snippets?: { label: string; code: string }[];
+    patch?: { before: string; after: string };
+    testLabel?: string;
+  };
   robot?: {
     size: number;
     start: [number, number];
@@ -43,8 +60,15 @@ export const tracks: {
   title: string;
   description: string;
   color: string;
-  icon: 'sprout' | 'code' | 'globe';
+  icon: 'sprout' | 'code' | 'globe' | 'game';
 }[] = [
+  {
+    id: 'games',
+    title: 'Build games',
+    description: 'Make real games. Tap, play, and learn.',
+    color: '#527e42',
+    icon: 'game',
+  },
   {
     id: 'first-steps',
     title: 'First steps',
@@ -71,6 +95,7 @@ export const tracks: {
 // Coordinates are [column, row]. Right adds one column; down adds one row.
 // Robot commands contain allowed moves; solutionCommands contains a valid route.
 export const lessons: Lesson[] = [
+  ...gameLessons,
   {
     id: 'one-small-step',
     track: 'first-steps',
@@ -1185,6 +1210,56 @@ export const lessons: Lesson[] = [
 ];
 
 export const glossary: { term: string; meaning: string; example: string }[] = [
+  {
+    term: 'Game loop',
+    meaning: 'Repeat the game’s rules and redraw the screen while you play.',
+    example: 'update(dt) changes the game; draw() shows it.',
+  },
+  {
+    term: 'Frame',
+    meaning: 'One picture of a moving game. Many frames create motion.',
+    example: 'Move a little, draw, then repeat.',
+  },
+  {
+    term: 'Delta time',
+    meaning: 'How many seconds passed since the previous frame. Often called dt.',
+    example: 'x += speed * dt; moves fairly on different devices.',
+  },
+  {
+    term: 'Collision',
+    meaning: 'Two game objects touch or overlap.',
+    example: 'game.overlap(player, wall) checks two boxes.',
+  },
+  {
+    term: 'Velocity',
+    meaning: 'How fast something moves, and in which direction.',
+    example: 'vx = 100; means move right 100 pixels each second.',
+  },
+  {
+    term: 'Gravity',
+    meaning: 'A rule that makes a character’s downward speed grow over time.',
+    example: 'vy += 500 * dt;',
+  },
+  {
+    term: 'Game state',
+    meaning: 'The facts your game remembers right now, such as score and whether it is over.',
+    example: 'let score = 0; let won = false;',
+  },
+  {
+    term: 'Coordinates',
+    meaning: 'Two numbers that say where something is on the screen.',
+    example: 'x grows right; y grows down.',
+  },
+  {
+    term: 'Canvas',
+    meaning: 'The screen area where a game draws shapes and pictures.',
+    example: 'Our game canvas is 360 wide and 240 tall.',
+  },
+  {
+    term: 'Debugging',
+    meaning: 'Find why a program behaves differently from your plan, then test a small fix.',
+    example: 'Observe, predict, change one thing, and test again.',
+  },
   {
     term: 'Command',
     meaning: 'One instruction for the computer to follow.',

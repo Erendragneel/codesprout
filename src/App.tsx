@@ -17,6 +17,19 @@ import { htmlPreviewDocument, runJavaScript } from './lib/runner';
 import { Icon, type IconName } from './components/Icon';
 import { Garden } from './components/Garden';
 import LessonView, { speak } from './components/LessonView';
+import GameLessonView from './components/GameLessonView';
+import GameLab from './components/GameLab';
+import {
+  loadMastery,
+  saveMastery,
+  recordGuided,
+  recordIndependent,
+  saveProject,
+  dueGameReviews,
+  recordGameReview,
+  importMastery,
+  exportMastery,
+} from './lib/mastery';
 
 type Nav = 'learn' | 'practice' | 'playground' | 'growth';
 type InstallEvent = Event & {
@@ -121,8 +134,11 @@ function Panel({
 
 export default function App() {
   const [progress, setProgress] = useState<Progress>(loadProgress);
+  const [mastery, setMastery] = useState(loadMastery);
+  const [masteryStorageOk, setMasteryStorageOk] = useState(true);
+  const [gameReview, setGameReview] = useState(false);
   const [nav, setNav] = useState<Nav>(initialNav);
-  const [track, setTrack] = useState<TrackId>('first-steps');
+  const [track, setTrack] = useState<TrackId>('games');
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [panel, setPanel] = useState<'install' | 'settings' | 'glossary' | null>(null);
   const [toast, setToast] = useState('');
@@ -138,8 +154,13 @@ export default function App() {
   const completedSet = new Set(knownCompleted);
   const total = knownCompleted.length;
   const due = lessons.filter(
-    (l) => completedSet.has(l.id) && (progress.review[l.id]?.due ?? today) <= today
+    (l) =>
+      l.kind !== 'game' && completedSet.has(l.id) && (progress.review[l.id]?.due ?? today) <= today
   );
+  const gameDue = dueGameReviews(mastery, today);
+  const challengeLessons = lessons.filter((l) => l.game?.challenge);
+  const gameCompleted = lessons.filter((l) => l.kind === 'game' && completedSet.has(l.id)).length;
+  const independentCount = challengeLessons.filter((l) => mastery.independent[l.id]).length;
   const currentTrack = tracks.find((t) => t.id === track)!;
   const trackLessons = lessons.filter((l) => l.track === track);
   const trackCompleted = trackLessons.filter((l) => completedSet.has(l.id)).length;
@@ -154,6 +175,9 @@ export default function App() {
   useEffect(() => {
     setStorageOk(saveProgress(progress));
   }, [progress]);
+  useEffect(() => {
+    setMasteryStorageOk(saveMastery(mastery));
+  }, [mastery]);
   useEffect(() => {
     if (!toast) return;
     const id = setTimeout(() => setToast(''), 5500);
@@ -222,6 +246,7 @@ export default function App() {
       return;
     }
     setProgress((p) => ({ ...p, lastLesson: l.id }));
+    setGameReview(false);
     setLesson(l);
   }
   function complete(id: string) {
@@ -234,7 +259,21 @@ export default function App() {
   }
   function exportSave() {
     const url = URL.createObjectURL(
-      new Blob([exportProgress(progress)], { type: 'application/json' })
+      new Blob(
+        [
+          JSON.stringify(
+            {
+              format: 'codesprout-bundle',
+              version: 2,
+              progress: JSON.parse(exportProgress(progress)),
+              mastery: JSON.parse(exportMastery(mastery)),
+            },
+            null,
+            2
+          ),
+        ],
+        { type: 'application/json' }
+      )
     );
     const link = document.createElement('a');
     link.href = url;
@@ -246,13 +285,26 @@ export default function App() {
   async function importSave(file?: File) {
     if (!file) return;
     try {
-      if (file.size > 1_000_000)
+      if (file.size > 7_000_000)
         throw Error('This backup is too large. Choose a CodeSprout progress file.');
-      const next = importProgress(
-        await file.text(),
-        lessons.map((l) => l.id)
-      );
+      const json = await file.text();
+      const parsed = JSON.parse(json);
+      const isBundle = parsed.format === 'codesprout-bundle' && parsed.version === 2;
+      const ids = lessons.flatMap((l) => [
+        l.id,
+        `${l.id}-remix`,
+        `${l.id}-help`,
+        `${l.id}-remix-help`,
+      ]);
+      const next = importProgress(isBundle ? JSON.stringify(parsed.progress) : json, ids);
+      const nextMastery = isBundle
+        ? importMastery(
+            JSON.stringify(parsed.mastery),
+            lessons.map((l) => l.id)
+          )
+        : null;
       setProgress(next);
+      if (nextMastery) setMastery(nextMastery);
       setToast('Your saved progress is restored. Welcome back.');
     } catch (e) {
       setToast(e instanceof Error ? e.message : 'That is not a valid CodeSprout backup.');
@@ -303,8 +355,8 @@ export default function App() {
               >
                 <Icon name={n.icon} />
                 <span>{n.label}</span>
-                {n.id === 'practice' && due.length > 0 && (
-                  <span className="nav-count">{due.length}</span>
+                {n.id === 'practice' && due.length + gameDue.length > 0 && (
+                  <span className="nav-count">{due.length + gameDue.length}</span>
                 )}
               </button>
             ))}
@@ -336,7 +388,7 @@ export default function App() {
             <div className="sidebar-foot">
               <span className={`status-dot ${online ? '' : 'offline'}`} />
               {online ? 'Ready to grow' : 'Learning offline'}
-              <span>v1.0</span>
+              <span>v2.0</span>
             </div>
           </div>
         </aside>
@@ -379,7 +431,7 @@ export default function App() {
             </div>
           </header>
           <main id="main" ref={mainRef} tabIndex={-1}>
-            {!storageOk && (
+            {(!storageOk || !masteryStorageOk) && (
               <div className="notice" role="alert">
                 This browser could not save progress. Download a backup from My growth before
                 closing.
@@ -439,7 +491,7 @@ export default function App() {
                       <p>
                         {total
                           ? nextLesson.subtitle
-                          : 'Meet a little robot. Give it one instruction. You’re already thinking like a coder.'}
+                          : 'Make a little game appear. Change one small thing. See what your code does.'}
                       </p>
                       <button className="button cream" onClick={() => openLesson(nextLesson)}>
                         {total ? 'Continue learning' : 'Try my first tiny lesson'}{' '}
@@ -497,6 +549,28 @@ export default function App() {
                     </div>
                   </section>
                 </div>
+                <section className="game-banner">
+                  <Icon name="game" size={42} />
+                  <div>
+                    <h2>Let’s make games you can actually play.</h2>
+                    <p>
+                      30 small game lessons. Five playable projects. Eight fresh code challenges.
+                      Start at the beginning; use First steps whenever you want a gentler warm-up.
+                    </p>
+                  </div>
+                  <button
+                    className="button primary"
+                    onClick={() => {
+                      setTrack('games');
+                      openLesson(
+                        lessons.find((l) => l.kind === 'game' && !completedSet.has(l.id)) ??
+                          lessons.find((l) => l.kind === 'game')!
+                      );
+                    }}
+                  >
+                    Build my next game <Icon name="arrow" />
+                  </button>
+                </section>
                 <div className="path-heading">
                   <div>
                     <h2>Find your learning path</h2>
@@ -526,18 +600,22 @@ export default function App() {
                         </span>
                         <span>
                           <strong>
-                            {t.id === 'first-steps'
-                              ? 'First steps'
-                              : t.id === 'javascript'
-                                ? 'JavaScript'
-                                : 'Web pages'}
+                            {t.id === 'games'
+                              ? 'Build games'
+                              : t.id === 'first-steps'
+                                ? 'First steps'
+                                : t.id === 'javascript'
+                                  ? 'JavaScript'
+                                  : 'Web pages'}
                           </strong>
                           <small>
-                            {t.id === 'first-steps'
-                              ? 'Begin with simple moves'
-                              : t.id === 'javascript'
-                                ? 'Tell the computer what to do'
-                                : 'Make a page you can see'}
+                            {t.id === 'games'
+                              ? 'Real games, tiny steps'
+                              : t.id === 'first-steps'
+                                ? 'Begin with simple moves'
+                                : t.id === 'javascript'
+                                  ? 'Tell the computer what to do'
+                                  : 'Make a page you can see'}
                           </small>
                         </span>
                         <span className="track-count">
@@ -556,11 +634,13 @@ export default function App() {
                   <section className="lesson-path">
                     <div className="path-intro">
                       <span className="pill sage">
-                        {track === 'first-steps'
-                          ? 'THE PERFECT FIRST STEP'
-                          : track === 'javascript'
-                            ? 'REAL CODE, GENTLE STEPS'
-                            : 'BRING YOUR IDEAS TO LIFE'}
+                        {track === 'games'
+                          ? 'FROM A TAP TO A PLATFORMER'
+                          : track === 'first-steps'
+                            ? 'THE PERFECT FIRST STEP'
+                            : track === 'javascript'
+                              ? 'REAL CODE, GENTLE STEPS'
+                              : 'BRING YOUR IDEAS TO LIFE'}
                       </span>
                       <div className="path-progress">
                         <span>
@@ -680,17 +760,107 @@ export default function App() {
               </>
             )}
             {nav === 'practice' && (
-              <ReviewPractice
-                progress={progress}
-                due={due}
-                completed={lessons.filter((l) => completedSet.has(l.id))}
-                onReview={(id) => setProgress((p) => recordReview(p, id))}
-                onLesson={openLesson}
-              />
+              <>
+                <section className="game-evidence">
+                  <h2>Use a game skill again</h2>
+                  <p className="muted">
+                    A fresh draft, real code, and several inputs. Start with a finished game lesson
+                    that has a remix.
+                  </p>
+                  <div className="game-review-list">
+                    {challengeLessons
+                      .filter((l) => completedSet.has(l.id))
+                      .map((l) => (
+                        <div className="game-review-card" key={l.id}>
+                          <div>
+                            <strong>{l.title}</strong>
+                            <p>
+                              {gameDue.includes(l.id)
+                                ? 'Ready for a code review today.'
+                                : mastery.independent[l.id]
+                                  ? `Independent result saved. Next review: ${mastery.review[l.id]?.due ?? 'soon'}.`
+                                  : 'Guided step completed. Try the independent remix.'}
+                            </p>
+                          </div>
+                          <button
+                            className="button secondary"
+                            onClick={() => {
+                              setGameReview(true);
+                              setLesson(l);
+                            }}
+                          >
+                            {gameDue.includes(l.id) ? 'Review with code' : 'Try a fresh remix'}
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                  {!gameCompleted && (
+                    <button
+                      className="button primary"
+                      onClick={() => openLesson(lessons.find((l) => l.kind === 'game')!)}
+                    >
+                      Begin my first game
+                    </button>
+                  )}
+                </section>
+                <ReviewPractice
+                  progress={progress}
+                  due={due}
+                  completed={lessons.filter((l) => l.kind !== 'game' && completedSet.has(l.id))}
+                  onReview={(id) => setProgress((p) => recordReview(p, id))}
+                  onLesson={openLesson}
+                />
+              </>
             )}
-            {nav === 'playground' && <Playground />}
+            {nav === 'playground' && (
+              <>
+                <GameLab
+                  mastery={mastery}
+                  onSave={(id, title, code) => {
+                    const next = saveProject(mastery, id, title, code);
+                    if (next === mastery) return false;
+                    setMastery(next);
+                    return saveMastery(next);
+                  }}
+                  notify={setToast}
+                />
+                <details>
+                  <summary className="button secondary">
+                    JavaScript and web page experiments
+                  </summary>
+                  <Playground />
+                </details>
+              </>
+            )}
             {nav === 'growth' && (
               <>
+                <section className="game-evidence">
+                  <h2>Your game-building skills</h2>
+                  <div className="game-evidence-numbers">
+                    <div>
+                      <strong>{gameCompleted}/30</strong>
+                      <span>Guided game lessons</span>
+                    </div>
+                    <div>
+                      <strong>
+                        {independentCount}/{challengeLessons.length}
+                      </strong>
+                      <span>Independent code challenges</span>
+                    </div>
+                    <div>
+                      <strong>{Object.keys(mastery.projects).length}</strong>
+                      <span>Your saved games</span>
+                    </div>
+                  </div>
+                  <p className="small-note">
+                    Guided lessons and points track practice. Independent results mean your code
+                    passed a fresh challenge without hints. They are a useful check, not proof that
+                    every kind of game is mastered.
+                  </p>
+                  <button className="button secondary" onClick={() => navigate('playground')}>
+                    Open my game workshop <Icon name="game" />
+                  </button>
+                </section>
                 <div className="growth-grid">
                   <section className="growth-garden">
                     <span className="pill sage">YOUR SKILLS ARE GROWING</span>
@@ -805,8 +975,8 @@ export default function App() {
                     <div>
                       <h3>Keep your little garden safe.</h3>
                       <p>
-                        Download your progress to move it to another phone or browser. Restoring
-                        replaces this device’s saved progress.
+                        Download your progress, challenge results, and saved game source to move to
+                        another phone or browser. Restoring replaces this device’s saved progress.
                       </p>
                     </div>
                   </div>
@@ -860,7 +1030,61 @@ export default function App() {
         aria-label="Restore CodeSprout progress backup"
         onChange={(e) => void importSave(e.target.files?.[0])}
       />
-      {lesson && (
+      {lesson?.kind === 'game' && (
+        <GameLessonView
+          key={`${lesson.id}-${gameReview}`}
+          lesson={lesson}
+          draft={progress.drafts[lesson.id]}
+          challengeDraft={gameReview ? undefined : progress.drafts[`${lesson.id}-remix`]}
+          readAloud={progress.settings.readAloud}
+          reviewMode={gameReview}
+          guidedHelp={progress.drafts[`${lesson.id}-help`] === 'used'}
+          remixHelp={!gameReview && progress.drafts[`${lesson.id}-remix-help`] === 'used'}
+          onHelp={(challenge, used) =>
+            setProgress((p) => ({
+              ...p,
+              drafts: {
+                ...p.drafts,
+                [`${lesson.id}-${challenge ? 'remix-help' : 'help'}`]: used ? 'used' : '',
+              },
+            }))
+          }
+          onClose={() => setLesson(null)}
+          onDraft={(id, value) =>
+            setProgress((p) => ({ ...p, drafts: { ...p.drafts, [id]: value } }))
+          }
+          onComplete={(id, assisted) => {
+            complete(id);
+            setMastery((m) => recordGuided(m, id, assisted));
+          }}
+          onIndependent={(id, attempts, assisted) => {
+            if (!assisted) {
+              setMastery((m) =>
+                gameReview && m.independent[id]
+                  ? recordGameReview(m, id, {
+                      passed: true,
+                      assisted: false,
+                      solutionViewed: false,
+                    })
+                  : recordIndependent(m, id, attempts)
+              );
+              if (gameReview) setProgress((p) => recordReview(p, id));
+            }
+            setToast(
+              assisted
+                ? 'Practice saved. Try again without hints when you’re ready.'
+                : 'Your independent code result is saved.'
+            );
+          }}
+          hasNext={Boolean(nextAfter(lesson))}
+          onNext={() => {
+            const next = nextAfter(lesson);
+            if (next) openLesson(next);
+            else setLesson(null);
+          }}
+        />
+      )}
+      {lesson && lesson.kind !== 'game' && (
         <LessonView
           key={lesson.id}
           lesson={lesson}
@@ -974,7 +1198,7 @@ export default function App() {
               trackers, or account signups. GitHub hosts the app files.
             </p>
           </div>
-          <p className="small-note">CodeSprout 1.0 · Built for first-time learners</p>
+          <p className="small-note">CodeSprout 2.0 · Built for your first playable games</p>
         </Panel>
       )}
       {panel === 'glossary' && (
